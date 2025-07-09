@@ -23,16 +23,16 @@ describe("IPModel Integration Tests", function () {
     });
 
     describe("Real-world Scenarios", function () {
-        it("Should handle a complete NFT marketplace flow", async function () {
+        it("Should handle a complete NFT marketplace flow through authorized minting", async function () {
             // 1. 创建多个NFT组代表不同的AI模型
             await ipModel.createGroup("GPT-4 Model", "Advanced AI Language Model", 1000);
             await ipModel.createGroup("DALL-E Model", "AI Image Generation Model", 500);
             await ipModel.createGroup("Unlimited Model", "Open Source Model", 0);
 
-            // 2. 设置不同的价格
-            await ipModel.setGroupPriceAndToken(1, ethers.parseEther("100"), await testToken.getAddress()); // GPT-4: 100 tokens
-            await ipModel.setGroupPriceAndToken(2, ethers.parseEther("200"), await testToken.getAddress()); // DALL-E: 200 tokens
-            await ipModel.setGroupPriceAndToken(3, ethers.parseEther("10"), await testToken.getAddress());  // Unlimited: 10 tokens
+            // 2. 设置不同的价格（供外部市场合约使用）
+            await ipModel.setGroupPriceAndToken(1, ethers.parseEther("100"), await testToken.getAddress());
+            await ipModel.setGroupPriceAndToken(2, ethers.parseEther("200"), await testToken.getAddress());
+            await ipModel.setGroupPriceAndToken(3, ethers.parseEther("10"), await testToken.getAddress());
 
             // 3. 设置URI
             await ipModel.setBaseURI("https://api.aimodels.com/metadata");
@@ -40,17 +40,9 @@ describe("IPModel Integration Tests", function () {
             // 4. 授权一个地址作为铸造者（代表市场合约）
             await ipModel.setAuthorizedMinter(addr3.address, true);
 
-            // 5. 用户通过ERC20购买不同模型的访问权限
-            const gptPrice = ethers.parseEther("100");
-            const dallePrice = ethers.parseEther("200");
-
-            // 用户1购买GPT-4访问权限
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), gptPrice);
-            await ipModel.connect(addr1).mintWithToken(1, 1);
-
-            // 用户2购买DALL-E访问权限
-            await testToken.connect(addr2).approve(await ipModel.getAddress(), dallePrice);
-            await ipModel.connect(addr2).mintWithToken(2, 1);
+            // 5. 模拟市场合约为用户铸造NFT（在收到支付后）
+            await ipModel.connect(addr3).mint(addr1.address, 1, 1); // GPT-4
+            await ipModel.connect(addr3).mint(addr2.address, 2, 1); // DALL-E
 
             // 6. 市场合约批量铸造一些免费的开源模型访问权限
             await ipModel.connect(addr3).mint(addr1.address, 3, 10);
@@ -74,10 +66,6 @@ describe("IPModel Integration Tests", function () {
             expect(gptInfo[3]).to.equal(1); // currentSupply
             expect(dalleInfo[3]).to.equal(1);
             expect(unlimitedInfo[3]).to.equal(20);
-
-            // 10. 验证合约收到的ERC20
-            const contractBalance = await testToken.balanceOf(await ipModel.getAddress());
-            expect(contractBalance).to.equal(ethers.parseEther("300")); // 100 + 200
         });
 
         it("Should handle group deactivation and reactivation correctly", async function () {
@@ -85,18 +73,19 @@ describe("IPModel Integration Tests", function () {
             await ipModel.createGroup("Test Model", "Test Description", 100);
             await ipModel.setGroupPriceAndToken(1, ethers.parseEther("50"), await testToken.getAddress());
 
-            // 先让用户购买一些
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), ethers.parseEther("100"));
-            await ipModel.connect(addr1).mintWithToken(1, 2);
+            // 授权addr3作为铸造者
+            await ipModel.setAuthorizedMinter(addr3.address, true);
 
+            // 先让授权铸造者为用户铸造一些
+            await ipModel.connect(addr3).mint(addr1.address, 1, 2);
             expect(await ipModel.balanceOf(addr1.address, 1)).to.equal(2);
 
             // 暂停组
             await ipModel.setGroupActive(1, false);
 
-            // 确认不能再购买
-            await expect(ipModel.connect(addr1).mintWithToken(1, 1))
-                .to.be.revertedWith("Group not active");
+            // 确认不能再铸造到非活跃组
+            await expect(ipModel.connect(addr3).mint(addr1.address, 1, 1))
+                .to.be.revertedWith("IPModel: Group is not active");
 
             // 确认owner也不能mint到非活跃组
             await expect(ipModel.mint(addr2.address, 1, 1))
@@ -105,9 +94,8 @@ describe("IPModel Integration Tests", function () {
             // 重新激活
             await ipModel.setGroupActive(1, true);
 
-            // 现在应该可以再次购买
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), ethers.parseEther("50")); // 重新授权
-            await ipModel.connect(addr1).mintWithToken(1, 1);
+            // 现在应该可以再次铸造
+            await ipModel.connect(addr3).mint(addr1.address, 1, 1);
             expect(await ipModel.balanceOf(addr1.address, 1)).to.equal(3);
         });
 
@@ -147,9 +135,12 @@ describe("IPModel Integration Tests", function () {
             const initialPrice = ethers.parseEther("10");
             await ipModel.setGroupPriceAndToken(1, initialPrice, await testToken.getAddress());
 
-            // 用户以初始价格购买
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), initialPrice);
-            await ipModel.connect(addr1).mintWithToken(1, 1);
+            // 为用户授权铸造权限
+            await ipModel.setAuthorizedMinter(addr1.address, true);
+            await ipModel.setAuthorizedMinter(addr2.address, true);
+
+            // 用户进行授权铸造
+            await ipModel.connect(addr1).mint(addr1.address, 1, 1);
 
             // 更新价格
             const newPrice = ethers.parseEther("20");
@@ -159,13 +150,12 @@ describe("IPModel Integration Tests", function () {
             const groupInfo = await ipModel.getGroupInfo(1);
             expect(groupInfo[5]).to.equal(newPrice);
 
-            // 用户需要支付新价格
-            await testToken.connect(addr2).approve(await ipModel.getAddress(), newPrice);
-            await ipModel.connect(addr2).mintWithToken(1, 1);
+            // 另一个用户进行授权铸造
+            await ipModel.connect(addr2).mint(addr2.address, 1, 1);
 
-            // 验证总收入
-            const contractBalance = await testToken.balanceOf(await ipModel.getAddress());
-            expect(contractBalance).to.equal(ethers.parseEther("30")); // 10 + 20
+            // 验证代币已铸造
+            expect(await ipModel.balanceOf(addr1.address, 1)).to.equal(1);
+            expect(await ipModel.balanceOf(addr2.address, 1)).to.equal(1);
         });
 
         it("Should handle multiple token payments", async function () {
@@ -184,19 +174,22 @@ describe("IPModel Integration Tests", function () {
             await ipModel.setGroupPriceAndToken(1, ethers.parseEther("50"), await testToken.getAddress());
             await ipModel.setGroupPriceAndToken(2, ethers.parseEther("30"), await testToken2.getAddress());
 
-            // 用户用不同代币购买
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), ethers.parseEther("50"));
-            await testToken2.connect(addr1).approve(await ipModel.getAddress(), ethers.parseEther("30"));
+            // 为用户授权铸造权限
+            await ipModel.setAuthorizedMinter(addr1.address, true);
 
-            await ipModel.connect(addr1).mintWithToken(1, 1);
-            await ipModel.connect(addr1).mintWithToken(2, 1);
+            // 用户进行授权铸造
+            await ipModel.connect(addr1).mint(addr1.address, 1, 1);
+            await ipModel.connect(addr1).mint(addr1.address, 2, 1);
 
-            // 验证合约收到了两种代币
-            const balance1 = await testToken.balanceOf(await ipModel.getAddress());
-            const balance2 = await testToken2.balanceOf(await ipModel.getAddress());
+            // 验证代币已铸造
+            expect(await ipModel.balanceOf(addr1.address, 1)).to.equal(1);
+            expect(await ipModel.balanceOf(addr1.address, 2)).to.equal(1);
 
-            expect(balance1).to.equal(ethers.parseEther("50"));
-            expect(balance2).to.equal(ethers.parseEther("30"));
+            // 验证组信息正确
+            const group1Info = await ipModel.getGroupInfo(1);
+            const group2Info = await ipModel.getGroupInfo(2);
+            expect(group1Info[5]).to.equal(ethers.parseEther("50"));
+            expect(group2Info[5]).to.equal(ethers.parseEther("30"));
         });
     });
 
@@ -244,12 +237,15 @@ describe("IPModel Integration Tests", function () {
             await ipModel.createGroup("Test Model", "Test Description", 1000);
             await ipModel.setGroupPriceAndToken(1, ethers.parseEther("10"), await testToken.getAddress());
 
+            // 为地址授权铸造权限
+            await ipModel.setAuthorizedMinter(addr1.address, true);
+
             // 零数量应该被拒绝
             await expect(ipModel.mint(addr1.address, 1, 0))
                 .to.be.revertedWith("IPModel: Amount must be greater than 0");
 
-            await expect(ipModel.connect(addr1).mintWithToken(1, 0))
-                .to.be.revertedWith("Amount must be greater than 0");
+            await expect(ipModel.connect(addr1).mint(addr1.address, 1, 0))
+                .to.be.revertedWith("IPModel: Amount must be greater than 0");
         });
 
         it("Should handle string edge cases", async function () {
@@ -312,12 +308,13 @@ describe("IPModel Integration Tests", function () {
             await ipModel.createGroup("Test Model", "Test Description", 1000);
             await ipModel.setGroupPriceAndToken(1, ethers.parseEther("10"), await testToken.getAddress());
 
-            // 连续快速调用应该都成功
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), ethers.parseEther("100"));
+            // 为用户授权铸造权限
+            await ipModel.setAuthorizedMinter(addr1.address, true);
             
+            // 连续快速调用应该都成功
             const promises = [];
             for (let i = 0; i < 5; i++) {
-                promises.push(ipModel.connect(addr1).mintWithToken(1, 1));
+                promises.push(ipModel.connect(addr1).mint(addr1.address, 1, 1));
             }
             
             await Promise.all(promises);

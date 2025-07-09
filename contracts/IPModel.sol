@@ -53,11 +53,11 @@ contract IPModel is ERC1155, Ownable {
     }
 
     // 创建新的代币组
-    function createGroup(string memory name, string memory description, uint256 maxSupply) external onlyOwner returns (uint256) {
+    function createGroup(string memory name, string memory description, uint256 maxSupply, uint256 price, address payToken) external onlyOwner returns (uint256) {
         uint256 groupId = _nextTokenId;
         _nextTokenId++;
 
-        tokenGroups[groupId] = TokenGroup({ id: groupId, name: name, description: description, maxSupply: maxSupply, currentSupply: 0, isActive: true, price: 0, payToken: address(0) });
+        tokenGroups[groupId] = TokenGroup({ id: groupId, name: name, description: description, maxSupply: maxSupply, currentSupply: 0, isActive: true, price: price, payToken: payToken });
 
         groupIds.push(groupId);
 
@@ -94,23 +94,6 @@ contract IPModel is ERC1155, Ownable {
         emit TokensMinted(groupId, to, amount);
     }
 
-    // 使用ERC20支付的mint
-    function mintWithToken(uint256 groupId, uint256 amount) external {
-        TokenGroup storage group = tokenGroups[groupId];
-        require(group.isActive, "Group not active");
-        require(amount > 0, "Amount must be greater than 0");
-        if (group.maxSupply > 0) {
-            require(group.currentSupply + amount <= group.maxSupply, "Exceeds max supply");
-        }
-        require(group.price > 0, "Group price not set");
-        require(group.payToken != address(0), "Pay token not set");
-        uint256 total = group.price * amount;
-        // 收取ERC20
-        require(IERC20(group.payToken).transferFrom(msg.sender, address(this), total), "ERC20 payment failed");
-        group.currentSupply += amount;
-        _mint(msg.sender, groupId, amount, "");
-    }
-
     // 获取代币URI (ERC1155标准)
     function uri(uint256 _tokenId) public view virtual override returns (string memory) {
         require(tokenGroups[_tokenId].isActive || tokenGroups[_tokenId].currentSupply > 0, "IPModel: Token group does not exist");
@@ -129,15 +112,9 @@ contract IPModel is ERC1155, Ownable {
     }
 
     // 获取组信息
-    function getGroupInfo(uint256 groupId) external view returns (
-        string memory name,
-        string memory description, 
-        uint256 maxSupply,
-        uint256 currentSupply,
-        bool isActive,
-        uint256 price,
-        address payToken
-    ) {
+    function getGroupInfo(
+        uint256 groupId
+    ) external view returns (string memory name, string memory description, uint256 maxSupply, uint256 currentSupply, bool isActive, uint256 price, address payToken) {
         TokenGroup memory group = tokenGroups[groupId];
         return (group.name, group.description, group.maxSupply, group.currentSupply, group.isActive, group.price, group.payToken);
     }

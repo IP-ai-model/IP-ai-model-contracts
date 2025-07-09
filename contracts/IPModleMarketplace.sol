@@ -4,12 +4,12 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./IPModel.sol";
+import "./interfaces/IIPModel.sol";
 
 contract IPModelMarketplace is Ownable, ReentrancyGuard {
     
     // IPModel合约实例
-    IPModel public immutable ipModelContract;
+    IIPModel public immutable ipModelContract;
     
     // 收款地址
     address public recipient;
@@ -21,7 +21,7 @@ contract IPModelMarketplace is Ownable, ReentrancyGuard {
     constructor(address _ipModelContract, address _recipient) {
         require(_ipModelContract != address(0), "Marketplace: Invalid contract address");
         require(_recipient != address(0), "Marketplace: Invalid recipient address");
-        ipModelContract = IPModel(_ipModelContract);
+        ipModelContract = IIPModel(_ipModelContract);
         recipient = _recipient;
         _transferOwnership(msg.sender);
     }
@@ -32,11 +32,6 @@ contract IPModelMarketplace is Ownable, ReentrancyGuard {
         address oldRecipient = recipient;
         recipient = _recipient;
         emit RecipientChanged(oldRecipient, _recipient);
-    }
-    
-    // 设置代币组价格和支付代币（直接调用IPModel合约）
-    function setGroupPriceAndToken(uint256 groupId, uint256 price, address payToken) external onlyOwner {
-        ipModelContract.setGroupPriceAndToken(groupId, price, payToken);
     }
     
     // 购买代币（使用ERC20支付）

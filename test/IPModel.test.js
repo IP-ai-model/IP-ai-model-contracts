@@ -214,7 +214,7 @@ describe("IPModel", function () {
         });
     });
 
-    describe("Paid Minting with ERC20", function () {
+    describe("Price and Token Management", function () {
         beforeEach(async function () {
             await ipModel.createGroup("Paid Group", "Paid Description", 1000);
             groupId = 1;
@@ -223,94 +223,18 @@ describe("IPModel", function () {
             await ipModel.setGroupPriceAndToken(groupId, price, await testToken.getAddress());
         });
 
-        it("Should allow users to mint with ERC20 payment", async function () {
-            const amount = 5;
-            const totalCost = ethers.parseEther("50"); // 5 * 10 = 50 tokens
-
-            // 授权合约使用用户的代币
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), totalCost);
-
-            const balanceBefore = await testToken.balanceOf(addr1.address);
-            const contractBalanceBefore = await testToken.balanceOf(await ipModel.getAddress());
-
-            await ipModel.connect(addr1).mintWithToken(groupId, amount);
-
-            expect(await ipModel.balanceOf(addr1.address, groupId)).to.equal(amount);
-
-            const balanceAfter = await testToken.balanceOf(addr1.address);
-            const contractBalanceAfter = await testToken.balanceOf(await ipModel.getAddress());
-
-            expect(balanceBefore - balanceAfter).to.equal(totalCost);
-            expect(contractBalanceAfter - contractBalanceBefore).to.equal(totalCost);
-
+        it("Should store price and token information correctly", async function () {
             const groupInfo = await ipModel.getGroupInfo(groupId);
-            expect(groupInfo[3]).to.equal(amount); // currentSupply
+            expect(groupInfo[5]).to.equal(ethers.parseEther("10")); // price
+            expect(groupInfo[6]).to.equal(await testToken.getAddress()); // payToken
         });
 
-        it("Should revert when insufficient allowance", async function () {
-            const amount = 5;
-            const insufficientAllowance = ethers.parseEther("20"); // 不够50的费用
-
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), insufficientAllowance);
-
-            await expect(ipModel.connect(addr1).mintWithToken(groupId, amount))
-                .to.be.revertedWith("ERC20: insufficient allowance");
-        });
-
-        it("Should revert when insufficient balance", async function () {
-            const amount = 200; // 需要2000个代币，但用户只有1000个
-            const totalCost = ethers.parseEther("2000");
-
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), totalCost);
-
-            await expect(ipModel.connect(addr1).mintWithToken(groupId, amount))
-                .to.be.revertedWith("ERC20: transfer amount exceeds balance");
-        });
-
-        it("Should revert when group is not active", async function () {
-            await ipModel.setGroupActive(groupId, false);
-
-            const amount = 1;
-            const totalCost = ethers.parseEther("10");
-            await testToken.connect(addr1).approve(await ipModel.getAddress(), totalCost);
-
-            await expect(ipModel.connect(addr1).mintWithToken(groupId, amount))
-                .to.be.revertedWith("Group not active");
-        });
-
-        it("Should revert when amount is zero", async function () {
-            await expect(ipModel.connect(addr1).mintWithToken(groupId, 0))
-                .to.be.revertedWith("Amount must be greater than 0");
-        });
-
-        it("Should revert when price is not set", async function () {
-            await ipModel.createGroup("Free Group", "Free Description", 1000);
-            const freeGroupId = 2;
-
-            await expect(ipModel.connect(addr1).mintWithToken(freeGroupId, 1))
-                .to.be.revertedWith("Group price not set");
-        });
-
-        it("Should revert when pay token is not set", async function () {
-            await ipModel.createGroup("No Token Group", "No Token Description", 1000);
-            const noTokenGroupId = 2;
-            await ipModel.setGroupPriceAndToken(noTokenGroupId, ethers.parseEther("10"), ethers.ZeroAddress);
-
-            await expect(ipModel.connect(addr1).mintWithToken(noTokenGroupId, 1))
-                .to.be.revertedWith("Pay token not set");
-        });
-
-        it("Should respect max supply limits in paid minting", async function () {
-            // 使用owner先铸造到接近上限
-            await ipModel.mint(addr1.address, groupId, 995);
-
-            // 现在尝试用ERC20购买超过剩余数量的代币
-            const amount = 10; // 只剩5个，但要买10个
-            const totalCost = ethers.parseEther("100");
-            await testToken.connect(addr2).approve(await ipModel.getAddress(), totalCost);
-
-            await expect(ipModel.connect(addr2).mintWithToken(groupId, amount))
-                .to.be.revertedWith("Exceeds max supply");
+        it("Should allow owner to update price and token", async function () {
+            const newPrice = ethers.parseEther("20");
+            await ipModel.setGroupPriceAndToken(groupId, newPrice, await testToken.getAddress());
+            
+            const groupInfo = await ipModel.getGroupInfo(groupId);
+            expect(groupInfo[5]).to.equal(newPrice); // price
         });
     });
 
